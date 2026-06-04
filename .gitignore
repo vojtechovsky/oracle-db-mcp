@@ -1,0 +1,45 @@
+## .NET
+bin/
+obj/
+publish/
+
+## User secrets
+*.user
+secrets.json
+
+## Visual Studio
+.vs/
+*.suo
+*.userossettings
+
+## JetBrains Rider
+.idea/
+*.sln.iml
+
+## VS Code
+.vscode/
+
+## OS
+Thumbs.db
+.DS_Store
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+bld/
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+## Project-specific
+appsettings.*.local.json
+src/BookingSystem.Web/logs/
+
+## Local file storage (dev)
+src/BookingSystem.Web/wwwroot/uploads/*
+!src/BookingSystem.Web/wwwroot/uploads/.gitkeep
