@@ -21,29 +21,31 @@ public class OracleTools
         _oracleService = oracleService;
     }
 
-    /// <summary>
-    /// Executes a SQL SELECT query against an Oracle database and returns results as JSON.
-    /// </summary>
     [McpServerTool(Name = "query_oracle")]
     [Description("""
-        Executes a read-only SQL SELECT query on an Oracle database.
-        Returns a JSON array of result rows. Maximum 1000 rows — a warning is included if truncated.
-        Use list_databases first to get available username and dbserver values.
-        """)]
+    Executes a read-only SQL SELECT query on an Oracle database.
+    Returns a JSON array of result rows by default. Maximum 1000 rows — a warning is included if truncated.
+    Use exportMarkdown=true to get results as a Markdown table instead of JSON.
+    Use exportCsv=true to also save results as a CSV file.
+    Use list_databases first to get available username and dbserver values.
+    """)]
     public async Task<string> QueryOracle(
         [Description("Oracle username. The password is always identical to the username.")]
-        string username,
+    string username,
 
         [Description("DNS name of the Oracle server (also used as the service name).")]
-        string dbServer,
+    string dbServer,
 
         [Description("A valid SQL SELECT statement to execute.")]
-        string sql,
+    string sql,
 
-        [Description("If true, also saves the result as a CSV file and returns the file path.")]
-        bool exportCsv = false)
+        [Description("If true, returns results as a Markdown table instead of JSON. Useful for human-readable output.")]
+    bool exportMarkdown = false,
+
+        [Description("If true, also saves the result as a CSV file and returns the file path. Only applies when exportMarkdown is false.")]
+    bool exportCsv = false)
     {
-        return await _oracleService.ExecuteQueryAsync(username, dbServer, sql, exportCsv);
+        return await _oracleService.ExecuteQueryAsync(username, dbServer, sql, exportCsv, exportMarkdown);
     }
 
     /// <summary>

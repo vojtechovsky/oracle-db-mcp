@@ -33,7 +33,8 @@ public class OracleService
         string username,
         string dbServer,
         string sql,
-        bool exportCsv = false)
+        bool exportCsv = false,
+        bool exportMarkdown = false)
     {
         if (!IsSelectStatement(sql))
             return JsonSerializer.Serialize(new { error = "Only SELECT statements are allowed." });
@@ -68,11 +69,27 @@ public class OracleService
                 rows.Add(row);
             }
 
+            // Detect fully-null columns — shared for all output formats
+            var nullColumns = columns
+                .Where(col => rows.All(row => row[col] is null))
+                .ToHashSet();
+
+            var visibleColumns = columns
+                .Where(col => !nullColumns.Contains(col))
+                .ToList();
+
             string? csvPath = null;
             if (exportCsv)
-                csvPath = await SaveCsvAsync(columns, rows);
+            {
+                csvPath = await SaveCsvAsync(visibleColumns, rows);
+            }
 
-            return BuildJsonResponse(rows, truncated, csvPath);
+            if (exportMarkdown)
+            {
+                return BuildMarkdownResponse(visibleColumns, rows, truncated, nullColumns);
+            }
+
+            return BuildJsonResponse(visibleColumns, rows, truncated, csvPath, nullColumns);
         }
         catch (OracleException ex)
         {
@@ -111,14 +128,19 @@ public class OracleService
     }
 
     private static string BuildJsonResponse(
-        List<Dictionary<string, object?>> rows,
-        bool truncated,
-        string? csvPath)
+    List<string> columns,
+    List<Dictionary<string, object?>> rows,
+    bool truncated,
+    string? csvPath,
+    HashSet<string> nullColumns)
     {
+        // Strip null columns from each row
+        var cleanedRows = rows.Select(row => columns.ToDictionary(col => col, col => row[col])).ToList();
+
         var result = new Dictionary<string, object?>
         {
-            ["rows"] = rows,
-            ["rowCount"] = rows.Count
+            ["rows"] = cleanedRows,
+            ["rowCount"] = cleanedRows.Count
         };
 
         if (truncated)
@@ -127,7 +149,52 @@ public class OracleService
         if (csvPath is not null)
             result["csvPath"] = csvPath;
 
+        if (nullColumns.Count > 0)
+            result["nullColumnsOmitted"] = nullColumns.OrderBy(c => c).ToList();
+
         return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    private static string BuildMarkdownResponse(
+        List<string> columns,
+        List<Dictionary<string, object?>> rows,
+        bool truncated,
+        HashSet<string> nullColumns)
+    {
+        var sb = new StringBuilder();
+
+        var visibleColumns = columns
+            .Where(col => !nullColumns.Contains(col))
+            .ToList();
+
+        // Header row
+        sb.AppendLine("| " + string.Join(" | ", visibleColumns) + " |");
+
+        // Separator row
+        sb.AppendLine("| " + string.Join(" | ", visibleColumns.Select(_ => "---")) + " |");
+
+        // Data rows
+        foreach (var row in rows)
+        {
+            var cells = visibleColumns.Select(col =>
+            {
+                var value = row[col]?.ToString() ?? "NULL";
+                return value.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
+            });
+            sb.AppendLine("| " + string.Join(" | ", cells) + " |");
+        }
+
+        // Null columns note
+        if (nullColumns.Count > 0)
+        {
+            var columnList = string.Join(", ", nullColumns.Select(c => $"`{c}`"));
+            sb.AppendLine($"\n> ℹ️ **Columns with all NULL values (omitted):** {columnList}");
+        }
+
+        if (truncated)
+            sb.AppendLine("\n> ⚠️ **TRUNCATED:** result contains only first 1000 rows.");
+
+        return sb.ToString();
     }
 
     private async Task<string> SaveCsvAsync(
