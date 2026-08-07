@@ -7,11 +7,13 @@ A local MCP (Model Context Protocol) server written in C# (.NET 10) that gives A
 ## Features
 
 - 🔍 **Execute SQL SELECT queries** against Oracle databases via natural language
-- 📋 **List preconfigured databases** — AI can present the user with a selection of available environments
+- 🎯 **Open targeting** — any Oracle schema/server reachable from the machine can be queried using the `USERNAME@DBSERVER` pattern (e.g. `PVOX@COMTEST2`); not limited to configured connections
+- 📋 **List commonly used databases** — optional catalog of frequently used connections (hint, not a whitelist)
 - 🛡️ **Read-only enforcement** — only `SELECT` and `WITH` statements are accepted
 - ⚠️ **Row limit with truncation warning** — results capped at 1000 rows; truncation is explicitly flagged
 - 📁 **Optional CSV export** — save results to disk on demand
-- ⚙️ **Central configuration** — all database connections defined in `appsettings.json`
+- 📺 **Console logging** — each query logs `UserName` → `DbServer` → `SQL` to the console
+- ⚙️ **Central configuration** — commonly used database connections defined in `appsettings.json`
 - 🤖 **LLM-optimized output** — results returned as structured JSON for maximum AI reasoning quality
 
 ---
@@ -42,15 +44,22 @@ oracle-db-mcp/
 
 ### `list_databases`
 
-Returns all preconfigured Oracle database connections from `appsettings.json`. Always call this tool first to discover valid `username` and `dbserver` values before running queries.
+Returns the catalog of *commonly used* Oracle connections defined in `appsettings.json`.
+
+> **Important:** this is **NOT a whitelist.** It is only a hint of frequently used targets.
+> Any Oracle schema on any Oracle server reachable from this machine can be queried directly
+> via `query_oracle` using the `USERNAME@DBSERVER` pattern (e.g. `PVOX@COMTEST2`).
+> You do **not** need to call this tool before running a query.
+
+Each entry includes a `Target` field in `USERNAME@DBSERVER` form — the preferred way to reference a database.
 
 **Parameters:** none
 
 **Example response:**
 ```json
 [
-  { "username": "PVO_AIMG", "dbserver": "COMTEST99", "description": "PVO_AIMG, version:trunk" },
-  { "username": "PVO132_AIMG", "dbserver": "COMTEST99", "description": "PVO132_AIMG, version:13.2 - bootstrap 2026-02-24" }
+  { "username": "PVO_AIMG", "dbServer": "COMTEST9", "description": "PVO_AIMG, version:trunk", "target": "PVO_AIMG@COMTEST9" },
+  { "username": "PVO132_AIMG", "dbServer": "COMTEST9", "description": "PVO132_AIMG, version:13.2 - bootstrap 2026-02-24", "target": "PVO132_AIMG@COMTEST9" }
 ]
 ```
 
@@ -58,16 +67,25 @@ Returns all preconfigured Oracle database connections from `appsettings.json`. A
 
 ### `query_oracle`
 
-Executes a read-only SQL SELECT query on an Oracle database and returns the result as a JSON array of objects.
+Executes a read-only SQL SELECT query on **any** Oracle database reachable from this machine and returns the result as a JSON object.
+
+**Targeting:** databases are identified as `USERNAME@DBSERVER`, e.g. `PVOX@COMTEST2`. You are **not** restricted to the connections listed in `appsettings.json`. The target can be passed either as separate `username` + `dbServer` parameters, or as a combined `username="PVOX@COMTEST2"` shorthand (the server is then derived automatically). Password is always identical to the login username.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `username` | string | ✅ | Oracle username. Password is always identical to username. |
-| `dbServer` | string | ✅ | DNS name of the Oracle server (also used as the service name). |
+| `username` | string | ✅ | Oracle login username (password is identical). May also carry the combined `USERNAME@DBSERVER` form. |
+| `dbServer` | string | ✅ | DNS name / alias of the Oracle server (also used as the service name). Derived automatically when `username` carries the shorthand. |
 | `sql` | string | ✅ | A valid SQL SELECT statement. |
-| `exportCsv` | bool | ❌ | If `true`, saves the result as a CSV file and returns the file path. Default: `false`. |
+| `exportCsv` | bool | ❌ | If `true`, saves the result as a CSV file. The response includes `csvPath` and a `file://` `csvUri`. Default: `false`. |
+| `exportMarkdown` | bool | ❌ | If `true`, returns results as a Markdown table instead of JSON. Useful for human-readable output. Default: `false`. |
+| `timeoutSeconds` | int | ❌ | Query timeout in seconds. Default `60`. Increase for long-running queries (e.g. `300`). `0` falls back to the configured default. |
+
+**CSV exports & resources:** exported files are written to a deterministic export directory
+(`%LOCALAPPDATA%\OracleDbMcp\exports` by default) and are exposed as MCP resources — clients can
+read them via `resources/read` using `file://exports/{fileName}` URIs. The export directory can be
+overridden via the `ORACLE_DB_MCP_EXPORTS_PATH` environment variable or the `CsvExportPath` config key.
 
 **Example response (normal):**
 ```json
@@ -94,7 +112,8 @@ Executes a read-only SQL SELECT query on an Oracle database and returns the resu
 ```json
 {
   "rowCount": 42,
-  "csvPath": "C:\\path\\to\\exports\\export_20260604_092800.csv",
+  "csvPath": "C:\\Users\\you\\AppData\\Local\\OracleDbMcp\\exports\\export_20260604_092800.csv",
+  "csvUri": "file:///C:/Users/you/AppData/Local/OracleDbMcp/exports/export_20260604_092800.csv",
   "rows": [ ... ]
 }
 ```
@@ -130,7 +149,7 @@ Edit `appsettings.json` next to the executable (or in the project root during de
   ],
   "QuerySettings": {
     "MaxRows": 1000,
-    "CsvExportPath": "./exports"
+    "CommandTimeoutSeconds": 60
   }
 }
 ```
@@ -143,7 +162,12 @@ Edit `appsettings.json` next to the executable (or in the project root during de
 | `Databases[].dbserver` | string | — | DNS name of the Oracle server (EZConnect format). |
 | `Databases[].description` | string | — | Human-readable label shown to the AI and user. |
 | `QuerySettings.MaxRows` | int | `1000` | Maximum number of rows returned per query. |
-| `QuerySettings.CsvExportPath` | string | `./exports` | Directory where CSV exports are saved. |
+| `QuerySettings.CommandTimeoutSeconds` | int | `60` | Query timeout in seconds; `0` disables it. Overridable per query via the `timeoutSeconds` tool parameter. |
+| `QuerySettings.CsvExportPath` | string | *(OS default)* | Directory where CSV exports are saved. Resolved to an absolute path once at startup. Empty → `%LOCALAPPDATA%\OracleDbMcp\exports` (Windows). |
+
+> **Note:** `QuerySettings.CsvExportPath` is resolved at startup in this precedence order:
+> `ORACLE_DB_MCP_EXPORTS_PATH` environment variable → `CsvExportPath` config value → OS application-data default.
+> Relative config paths are anchored to the executable directory (never to the process working directory).
 
 ### Connection string format
 
@@ -220,7 +244,7 @@ Once configured, you can use natural language in Cursor chat:
 List all available databases.
 ```
 ```
-Show me the last 10 records from the PVOX2.DOCUMENTS table on COMTEST9.
+Work with PVOX@COMTEST2. Show me the last 10 records from the DOCUMENTS table.
 ```
 ```
 Query the PVO_AIMG schema on COMTEST9 and find all objects with STATUS = 'ERROR'. Export to CSV.
@@ -237,9 +261,10 @@ What columns does the PVOX2.WORKFLOW_LOG table have?
 |-----------|------------|
 | Language | C# 13 |
 | Framework | .NET 10 |
-| MCP SDK | `ModelContextProtocol` 1.3.0 |
-| DB driver | `Oracle.ManagedDataAccess.Core` 23.26.100 |
-| Hosting | `Microsoft.Extensions.Hosting` 10.0.8 |
+| MCP SDK | `ModelContextProtocol` 2.1.0 |
+| DB driver | `Oracle.ManagedDataAccess.Core` 23.26.300 |
+| SQL validation | `SqlParser.Net` (Oracle dialect) |
+| Hosting | `Microsoft.Extensions.Hosting` 10.0.10 |
 | Transport | STDIO |
 | Package management | Central Package Management (`Directory.Packages.props`) |
 | Solution format | SLNX |
