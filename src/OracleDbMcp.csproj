@@ -21,6 +21,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="ModelContextProtocol"  />
     <PackageReference Include="Oracle.ManagedDataAccess.Core"  />
+    <PackageReference Include="SqlParser.Net"  />
   </ItemGroup>
 
   <ItemGroup>
