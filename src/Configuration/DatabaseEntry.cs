@@ -19,4 +19,10 @@ public class DatabaseEntry
     /// Human-readable description of this database entry, shown to the user when selecting a target DB.
     /// </summary>
     public string Description { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Compact target identifier in USERNAME@DBSERVER form (e.g. PVOX@COMTEST2).
+    /// This is the preferred way to reference a database in prompts and tool calls.
+    /// </summary>
+    public string Target => $"{Username}@{DbServer}";
 }
